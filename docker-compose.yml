@@ -1,0 +1,35 @@
+# Development / small single-site deployment.
+# Production: set real secrets in .env (see backend/.env.example) and TWIN_ENV=production.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: twin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-twin-dev-only}
+      POSTGRES_DB: twin
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U twin"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://twin:${POSTGRES_PASSWORD:-twin-dev-only}@db:5432/twin
+      TWIN_ENV: ${TWIN_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-secret-change-me-before-production}
+      CREDENTIAL_KEY: ${CREDENTIAL_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    depends_on:
+      db: { condition: service_healthy }
+
+  web:
+    build: ./frontend
+    ports: ["${WEB_PORT:-8080}:80"]
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  pgdata:

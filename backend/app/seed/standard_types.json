@@ -1,0 +1,231 @@
+[
+  {"key": "production_line", "name": "Production line", "category": "production", "icon": "line",
+   "description": "Logical grouping of equipment that produces a product.",
+   "property_schema": [
+     {"key": "product", "label": "Product", "type": "string"},
+     {"key": "takt_time_s", "label": "Takt time", "type": "number", "unit": "s", "min": 0},
+     {"key": "shift_pattern", "label": "Shift pattern", "type": "enum", "options": ["1x8", "2x8", "3x8", "continuous"], "default": "2x8"}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "Line state", "data_type": "enum", "options": ["running", "stopped", "fault", "maintenance"]},
+     {"key": "output_count", "label": "Output count", "data_type": "integer", "unit": "pcs"}
+   ],
+   "controls": [],
+   "visual": {"shape": "line", "color": "#3b82f6", "size": [20, 0.05, 4]}},
+
+  {"key": "conveyor", "name": "Belt conveyor", "category": "conveyor", "icon": "conveyor",
+   "property_schema": [
+     {"key": "length_m", "label": "Length", "type": "number", "unit": "m", "min": 0.1, "max": 500, "required": true, "default": 6},
+     {"key": "belt_width_mm", "label": "Belt width", "type": "number", "unit": "mm", "min": 50, "max": 3000, "default": 600},
+     {"key": "max_speed_mps", "label": "Max belt speed", "type": "number", "unit": "m/s", "min": 0, "max": 10, "default": 1.5}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["running", "stopped", "fault", "maintenance", "emergency_stop"], "expected_interval_s": 2},
+     {"key": "speed_mps", "label": "Belt speed", "unit": "m/s", "min": 0, "max": 10},
+     {"key": "item_count", "label": "Items conveyed", "data_type": "integer", "unit": "pcs"}
+   ],
+   "controls": [
+     {"key": "start", "label": "Start", "kind": "command", "feedback_measurement": "state"},
+     {"key": "stop", "label": "Stop", "kind": "command", "requires_confirmation": false, "feedback_measurement": "state"},
+     {"key": "speed_setpoint", "label": "Speed setpoint", "kind": "setpoint", "min_role": "engineer",
+      "params": [{"key": "value", "label": "Speed", "type": "number", "unit": "m/s", "min": 0, "max": 2}], "feedback_measurement": "speed_mps"}
+   ],
+   "visual": {"shape": "conveyor", "color": "#4b5563", "size": [6, 0.9, 0.8]}},
+
+  {"key": "motor", "name": "Induction motor", "category": "motor", "icon": "motor",
+   "property_schema": [
+     {"key": "rated_power_kw", "label": "Rated power", "type": "number", "unit": "kW", "min": 0, "max": 20000, "required": true, "default": 7.5},
+     {"key": "rated_speed_rpm", "label": "Rated speed", "type": "number", "unit": "rpm", "min": 0, "max": 20000, "default": 1450},
+     {"key": "rated_voltage_v", "label": "Rated voltage", "type": "number", "unit": "V", "default": 400},
+     {"key": "poles", "label": "Poles", "type": "integer", "min": 2, "max": 64, "default": 4},
+     {"key": "drive", "label": "Drive", "type": "enum", "options": ["DOL", "star-delta", "soft starter", "VFD"], "default": "VFD"}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["running", "stopped", "fault", "maintenance"], "expected_interval_s": 2},
+     {"key": "rpm", "label": "Speed", "unit": "rpm", "min": 0, "max": 3600, "warn_high": 1550, "alarm_high": 1600},
+     {"key": "current", "label": "Current", "unit": "A", "min": 0, "warn_high": 22, "alarm_high": 25},
+     {"key": "winding_temp", "label": "Winding temperature", "unit": "°C", "warn_high": 90, "alarm_high": 110, "expected_interval_s": 10},
+     {"key": "vibration", "label": "Vibration (RMS)", "unit": "mm/s", "warn_high": 4.5, "alarm_high": 7.1}
+   ],
+   "controls": [
+     {"key": "start", "label": "Start", "kind": "command", "feedback_measurement": "state"},
+     {"key": "stop", "label": "Stop", "kind": "command", "requires_confirmation": false, "feedback_measurement": "state"},
+     {"key": "speed_setpoint", "label": "Speed setpoint", "kind": "setpoint", "min_role": "engineer",
+      "params": [{"key": "value", "label": "Speed", "type": "number", "unit": "rpm", "min": 0, "max": 1500}], "feedback_measurement": "rpm"}
+   ],
+   "visual": {"shape": "cylinder", "color": "#2563eb", "size": [0.6, 0.5, 0.9]}},
+
+  {"key": "robot_arm", "name": "Industrial robot arm", "category": "robot", "icon": "robot",
+   "property_schema": [
+     {"key": "axes", "label": "Axes", "type": "integer", "min": 3, "max": 7, "default": 6},
+     {"key": "payload_kg", "label": "Payload", "type": "number", "unit": "kg", "min": 0, "default": 10},
+     {"key": "reach_mm", "label": "Reach", "type": "number", "unit": "mm", "min": 0, "default": 1400}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["running", "idle", "fault", "maintenance", "emergency_stop"], "expected_interval_s": 2},
+     {"key": "program", "label": "Active program", "data_type": "string"},
+     {"key": "cycle_count", "label": "Cycle count", "data_type": "integer"},
+     {"key": "cycle_time_s", "label": "Last cycle time", "unit": "s"},
+     {"key": "error_code", "label": "Error code", "data_type": "string"}
+   ],
+   "controls": [],
+   "visual": {"shape": "robot_arm", "color": "#f59e0b", "size": [1.2, 2, 1.2]}},
+
+  {"key": "temperature_sensor", "name": "Temperature transmitter", "category": "sensor", "icon": "thermometer",
+   "property_schema": [
+     {"key": "element", "label": "Sensing element", "type": "enum", "options": ["PT100", "PT1000", "Thermocouple K", "Thermocouple J", "NTC", "Digital"], "default": "PT100"},
+     {"key": "range_min", "label": "Range min", "type": "number", "unit": "°C", "default": -50},
+     {"key": "range_max", "label": "Range max", "type": "number", "unit": "°C", "default": 150},
+     {"key": "accuracy", "label": "Accuracy", "type": "number", "unit": "°C", "min": 0, "default": 0.5}
+   ],
+   "telemetry": [
+     {"key": "temp", "label": "Temperature", "unit": "°C", "min": -50, "max": 150, "warn_high": 70, "alarm_high": 80}
+   ],
+   "controls": [],
+   "visual": {"shape": "sensor", "color": "#ef4444", "size": [0.15, 0.25, 0.15]}},
+
+  {"key": "pressure_sensor", "name": "Pressure transmitter", "category": "sensor", "icon": "gauge",
+   "property_schema": [
+     {"key": "range_max", "label": "Range max", "type": "number", "unit": "bar", "default": 10},
+     {"key": "pressure_type", "label": "Measurement type", "type": "enum", "options": ["gauge", "absolute", "differential"], "default": "gauge"}
+   ],
+   "telemetry": [
+     {"key": "pressure", "label": "Pressure", "unit": "bar", "min": 0, "max": 16, "warn_high": 7.5, "alarm_high": 8.5, "warn_low": 4, "alarm_low": 3}
+   ],
+   "controls": [],
+   "visual": {"shape": "sensor", "color": "#8b5cf6", "size": [0.15, 0.25, 0.15]}},
+
+  {"key": "humidity_sensor", "name": "Humidity sensor", "category": "sensor", "icon": "droplet",
+   "property_schema": [],
+   "telemetry": [
+     {"key": "rh", "label": "Relative humidity", "unit": "%", "min": 0, "max": 100, "warn_high": 70},
+     {"key": "temp", "label": "Temperature", "unit": "°C"}
+   ],
+   "controls": [],
+   "visual": {"shape": "sensor", "color": "#06b6d4", "size": [0.15, 0.2, 0.15]}},
+
+  {"key": "flow_meter", "name": "Flow meter", "category": "sensor", "icon": "flow",
+   "property_schema": [
+     {"key": "principle", "label": "Principle", "type": "enum", "options": ["electromagnetic", "ultrasonic", "coriolis", "vortex", "turbine"], "default": "electromagnetic"},
+     {"key": "pipe_dn", "label": "Pipe size (DN)", "type": "integer", "min": 1, "default": 50}
+   ],
+   "telemetry": [
+     {"key": "flow", "label": "Flow rate", "unit": "m³/h", "min": 0},
+     {"key": "totalizer", "label": "Totalizer", "unit": "m³"}
+   ],
+   "controls": [],
+   "visual": {"shape": "sensor", "color": "#14b8a6", "size": [0.3, 0.3, 0.3]}},
+
+  {"key": "energy_meter", "name": "Three-phase energy meter", "category": "electrical", "icon": "bolt",
+   "property_schema": [
+     {"key": "ct_ratio", "label": "CT ratio", "type": "string", "default": "100/5"},
+     {"key": "accuracy_class", "label": "Accuracy class", "type": "enum", "options": ["0.2S", "0.5S", "1", "2"], "default": "0.5S"}
+   ],
+   "telemetry": [
+     {"key": "power_kw", "label": "Active power", "unit": "kW", "min": 0, "warn_high": 60, "alarm_high": 75},
+     {"key": "voltage", "label": "Voltage L-L", "unit": "V", "warn_low": 380, "warn_high": 420},
+     {"key": "energy_kwh", "label": "Energy", "unit": "kWh", "expected_interval_s": 60},
+     {"key": "power_factor", "label": "Power factor", "min": 0, "max": 1, "warn_low": 0.9}
+   ],
+   "controls": [],
+   "visual": {"shape": "panel", "color": "#eab308", "size": [0.3, 0.4, 0.15]}},
+
+  {"key": "pump", "name": "Centrifugal pump", "category": "pump", "icon": "pump",
+   "property_schema": [
+     {"key": "rated_flow_m3h", "label": "Rated flow", "type": "number", "unit": "m³/h", "min": 0, "default": 30},
+     {"key": "rated_head_m", "label": "Rated head", "type": "number", "unit": "m", "min": 0, "default": 40},
+     {"key": "medium", "label": "Medium", "type": "string", "default": "Water"}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["running", "stopped", "fault", "maintenance"], "expected_interval_s": 2},
+     {"key": "flow", "label": "Flow", "unit": "m³/h"},
+     {"key": "discharge_pressure", "label": "Discharge pressure", "unit": "bar", "alarm_high": 9}
+   ],
+   "controls": [
+     {"key": "start", "label": "Start", "kind": "command", "feedback_measurement": "state"},
+     {"key": "stop", "label": "Stop", "kind": "command", "requires_confirmation": false, "feedback_measurement": "state"}
+   ],
+   "visual": {"shape": "cylinder", "color": "#0ea5e9", "size": [0.8, 0.8, 1.2]}},
+
+  {"key": "valve", "name": "Control valve", "category": "valve", "icon": "valve",
+   "property_schema": [
+     {"key": "valve_type", "label": "Type", "type": "enum", "options": ["on/off", "modulating"], "default": "on/off"},
+     {"key": "dn", "label": "Size (DN)", "type": "integer", "min": 1, "default": 50},
+     {"key": "fail_position", "label": "Fail-safe position", "type": "enum", "options": ["open", "closed", "last"], "required": true, "default": "closed"}
+   ],
+   "telemetry": [
+     {"key": "position_pct", "label": "Position", "unit": "%", "min": 0, "max": 100}
+   ],
+   "controls": [
+     {"key": "open", "label": "Open", "kind": "command", "feedback_measurement": "position_pct"},
+     {"key": "close", "label": "Close", "kind": "command", "feedback_measurement": "position_pct"}
+   ],
+   "visual": {"shape": "box", "color": "#10b981", "size": [0.4, 0.4, 0.4]}},
+
+  {"key": "tank", "name": "Storage tank", "category": "tank", "icon": "tank",
+   "property_schema": [
+     {"key": "capacity_m3", "label": "Capacity", "type": "number", "unit": "m³", "min": 0, "required": true, "default": 20},
+     {"key": "medium", "label": "Medium", "type": "string", "default": "Water"}
+   ],
+   "telemetry": [
+     {"key": "level_pct", "label": "Level", "unit": "%", "min": 0, "max": 100, "warn_low": 15, "alarm_low": 5, "warn_high": 90, "alarm_high": 95},
+     {"key": "temp", "label": "Temperature", "unit": "°C"}
+   ],
+   "controls": [],
+   "visual": {"shape": "tank", "color": "#94a3b8", "size": [2.5, 4, 2.5]}},
+
+  {"key": "compressor", "name": "Air compressor", "category": "compressor", "icon": "compressor",
+   "property_schema": [
+     {"key": "rated_power_kw", "label": "Rated power", "type": "number", "unit": "kW", "default": 37},
+     {"key": "fad_m3min", "label": "Free air delivery", "type": "number", "unit": "m³/min", "default": 6}
+   ],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["loaded", "unloaded", "stopped", "fault"]},
+     {"key": "pressure", "label": "Outlet pressure", "unit": "bar", "alarm_high": 10}
+   ],
+   "controls": [],
+   "visual": {"shape": "box", "color": "#64748b", "size": [1.6, 1.6, 1]}},
+
+  {"key": "fan", "name": "Industrial fan", "category": "hvac", "icon": "fan",
+   "property_schema": [{"key": "airflow_m3h", "label": "Rated airflow", "type": "number", "unit": "m³/h", "default": 10000}],
+   "telemetry": [
+     {"key": "state", "label": "State", "data_type": "enum", "options": ["running", "stopped", "fault"]},
+     {"key": "rpm", "label": "Speed", "unit": "rpm"}
+   ],
+   "controls": [],
+   "visual": {"shape": "cylinder", "color": "#22c55e", "size": [1, 1, 0.4]}},
+
+  {"key": "hvac_unit", "name": "HVAC unit", "category": "hvac", "icon": "hvac",
+   "property_schema": [{"key": "cooling_kw", "label": "Cooling capacity", "type": "number", "unit": "kW", "default": 50}],
+   "telemetry": [
+     {"key": "supply_temp", "label": "Supply air temp", "unit": "°C"},
+     {"key": "return_temp", "label": "Return air temp", "unit": "°C"}
+   ],
+   "controls": [],
+   "visual": {"shape": "box", "color": "#22c55e", "size": [2, 1.5, 1.2]}},
+
+  {"key": "control_panel", "name": "Electrical control panel", "category": "electrical", "icon": "panel",
+   "property_schema": [
+     {"key": "ip_rating", "label": "IP rating", "type": "string", "default": "IP54"},
+     {"key": "incoming_supply", "label": "Incoming supply", "type": "string", "default": "415V 3ph 50Hz"}
+   ],
+   "telemetry": [
+     {"key": "estop_status", "label": "E-stop circuit", "data_type": "enum", "options": ["healthy", "tripped", "unknown"], "expected_interval_s": 2},
+     {"key": "cabinet_temp", "label": "Cabinet temperature", "unit": "°C", "warn_high": 45}
+   ],
+   "controls": [],
+   "visual": {"shape": "panel", "color": "#a3a3a3", "size": [1.2, 2, 0.5]}},
+
+  {"key": "plc", "name": "PLC", "category": "controller", "icon": "cpu",
+   "property_schema": [
+     {"key": "vendor_family", "label": "Family", "type": "string"},
+     {"key": "firmware", "label": "Firmware", "type": "string"},
+     {"key": "ip_address", "label": "IP address", "type": "string"}
+   ],
+   "telemetry": [
+     {"key": "run_mode", "label": "Run mode", "data_type": "enum", "options": ["run", "stop", "fault"]},
+     {"key": "scan_time_ms", "label": "Scan time", "unit": "ms"}
+   ],
+   "controls": [],
+   "visual": {"shape": "panel", "color": "#525252", "size": [0.4, 0.3, 0.2]}}
+]
