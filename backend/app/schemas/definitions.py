@@ -76,8 +76,13 @@ class ControlDef(_Def):
     params: list[ControlParam] = Field(default_factory=list)
     requires_confirmation: bool = True
     min_role: Literal["operator", "engineer", "admin"] = "operator"
-    # Telemetry key whose value confirms the command took effect (Phase 5).
+    # Telemetry key whose value confirms the command took effect.
     feedback_measurement: str | None = None
+    # Expected feedback for commands (e.g. "running"); setpoints compare to the requested value.
+    feedback_value: str | float | bool | None = None
+    feedback_tolerance: float | None = Field(default=None, ge=0)
+    requires_approval: bool = False
+    timeout_s: float = Field(default=15.0, gt=0, le=600)
     description: str = ""
 
 

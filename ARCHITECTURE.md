@@ -141,10 +141,15 @@ frontend/src/
   styles/       app.css (design tokens, dark/light themes)
 ```
 
-Phase 2 adds `editor/` (scene store with command-pattern undo/redo, R3F canvas,
-gizmos, asset library, properties panel). Phase 4 adds `live/` (WebSocket client
-with reconnect/backoff, telemetry store keyed by `assetId:measurement`, a
-`useTelemetry(key)` hook built on `useSyncExternalStore`, rAF-throttled flush).
+**(built)** `editor/`: a zustand scene store with command-pattern undo/redo
+(`store.ts`), `SceneView.tsx` (R3F canvas, cameras, floor and areas, instanced
+layer, gizmo, drop raycasting, perf probe), `objects.tsx` (shape renderers,
+live-driven animation, model loaders) and `EditorPage.tsx`. **(built)** `live/`:
+WebSocket client with ticket auth and reconnect/backoff (`LiveClient.ts`), a
+telemetry store keyed by `assetId:measurement` outside React (`telemetryStore.ts`),
+`useTelemetry` on `useSyncExternalStore`, rAF-batched notification, and status
+rules (`status.ts`: freshness, limits, derived condition). The 3D pages are
+lazy-loaded so three.js isn't in the main bundle.
 
 ## 6. Device integration architecture
 
@@ -155,11 +160,14 @@ See [DEVICE_INTEGRATION.md](DEVICE_INTEGRATION.md). Summary:
   get_diagnostics`, plus a declarative `config_schema` the UI renders as a form.
 * Adapters register in `adapters.registry` by protocol key; third-party adapters
   are discovered via Python entry points (`twin.adapters`) — Phase 3.
-* Phase 1 ships the interface and a **simulated** adapter only. MQTT and Modbus
-  TCP are Phase 3. Protocols needing hardware or licensed stacks (S7, EtherNet/IP,
-  BACnet, serial/RS485, CAN) are only listed as planned; the UI does not offer them.
+* **(built)** Adapters: simulated, **Modbus TCP** (poll) and **MQTT** (push).
+  Protocols needing hardware or licensed stacks (S7, EtherNet/IP, BACnet,
+  serial/RS485, CAN) are listed as planned; the UI does not offer them.
+* **(built)** Lab equipment (`backend/labsim`): a virtual PLC with its own Modbus TCP
+  server and PLC logic (run permissives, E-stop, latched faults), MQTT transmitters,
+  and a presenter panel. It runs as a separate process, exactly like real equipment.
 
-## 7. Real-time event architecture (Phase 4 design)
+## 7. Real-time event architecture (built for simulated devices; real adapters in Phase 3)
 
 ```mermaid
 sequenceDiagram
@@ -190,7 +198,7 @@ sequenceDiagram
 * Data quality enum on every value: `good | uncertain | bad | stale`, plus
   `source: live | simulated | playback`.
 
-## 8. Control architecture (Phase 5 design)
+## 8. Control architecture (built: `app/control/engine.py`)
 
 Lifecycle: `REQUESTED → VALIDATING → APPROVED → SENT → ACKNOWLEDGED → COMPLETED`,
 terminal failures `REJECTED | FAILED | TIMED_OUT | CANCELLED`.
@@ -210,7 +218,7 @@ E-stop button; E-stop *status* may be displayed when a device reports it.
 Simulation sessions can only dispatch to the simulated adapter (enforced in the
 command engine, not the UI).
 
-## 9. Rendering architecture (Phase 2 design)
+## 9. Rendering architecture (built, except LOD / per-area lazy loading / compression)
 
 * Three.js via React Three Fiber, `frameloop="demand"` — render only on camera
   move, edit, or telemetry-driven visual change.

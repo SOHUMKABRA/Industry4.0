@@ -66,6 +66,17 @@ Rules:
 * Blocking vendor libraries must run in a thread (`asyncio.to_thread`) so the event
   loop is never blocked.
 
+## Telemetry runtime
+
+`app/telemetry/runtime.py` polls every enabled, asset-bound device once per
+`TELEMETRY_POLL_S`, each read bounded by a 5 s timeout. Samples are mapped through
+`point_mappings`. Samples with bad quality, duplicate `(device, point, seq)` or older
+timestamps are filtered: older samples still go to history but never overwrite the
+latest value. Accepted values update the latest-value cache, stream to WebSocket
+subscribers, and are written to history in batches. Disabling or unbinding a device
+removes its cached values immediately, so they can't linger as if live. Push-style
+protocols (MQTT, webhooks) will feed the same `ingest()` entry point.
+
 ## Point mappings
 
 A device's `point_mappings` connect protocol addresses to the bound asset's
@@ -75,17 +86,55 @@ Point syntax is protocol-specific:
 | Protocol | Point examples |
 |---|---|
 | simulated | `temp`, `rpm` (profile-defined) |
-| mqtt (P3) | `plant/line1/tt101` + optional JSON path: `plant/line1/motor#$.rpm` |
-| modbus_tcp (P3) | `hr:40001:float32:be`, `ir:30010:int16`, `coil:5` |
+| mqtt | `plant/line1/tt101` (raw) or `plant/line1/motor#rpm` / `#data.motor.rpm` (JSON) |
+| modbus_tcp | `hr:0` (uint16) · `ir:10:float32` · `hr:3:uint32` · `co:0` · `di:4` · `hr:1:uint16:map=0=stopped;1=running;2=fault` |
 | opcua (planned) | `ns=2;s=Line1.Motor.Speed` |
 
 ## Adapters
 
 | Protocol | Status | Notes |
 |---|---|---|
-| Simulated | ✅ available | Profiles: temperature, pressure, motor, energy, flow, level. Can simulate a failed connection test. Never touches the network. |
-| MQTT | Phase 3 | `aiomqtt`; TLS, username/password, client certs; topic discovery by sampling |
-| Modbus TCP | Phase 3 | `pymodbus`; register map defined per device or per device template; byte/word order options |
+| Simulated | ✅ available | 15 profiles: temperature, temperature_hot (crosses limits), pressure, motor, motor_intermittent, energy, flow, level, conveyor, conveyor_intermittent (running/stopped/fault cycle), line, robot, pump, panel, plc. Speed/current signals read 0 whenever the profile's state isn't running. Counters reset daily. `fail_test` makes it fail tests and stop sending data (offline handling). Never touches the network. |
+| Modbus TCP | ✅ available | `pymodbus`. Point syntax `table:address[:type][:map=…]` (see below). Block reads, persistent connection, register-scan discovery, writes to coils / holding registers |
+| MQTT | ✅ available | `aiomqtt`, push-based. Point syntax `topic#json.path` or `topic` (raw). TLS, username/password (encrypted). Topic-sniffing discovery. Commands publish `{"value", "command_id", "ts"}` |
 | OPC UA | planned | `asyncua`; browse for discovery; subscriptions |
 | HTTP poll / Webhook | planned | |
 | Modbus RTU / RS485, S7, EtherNet/IP, BACnet, CAN | planned | Need serial/fieldbus hardware or vendor libraries. Edge gateway only. |
+
+### Modbus TCP details
+
+* Addresses are **0-based protocol addresses** (holding register 40001 → `hr:0`).
+* 32-bit types use two registers; set *Byte order* / *Word order* per device to match the PLC (many PLCs need word order `little`).
+* `map=` turns integer state codes into the text states your asset type expects (`running`, `fault`, …), in both directions for commands.
+* *Scale*/*Offset* in the point mapping convert raw counts to engineering units (e.g. `hr:2` cm/s × 0.01 → m/s).
+
+## Command (control) mappings
+
+Each device can map asset-type controls to protocol points:
+
+| Field | Meaning |
+|---|---|
+| `control` | Control key on the asset type (`start`, `stop`, `speed_setpoint`, …) |
+| `point` | Where to write: `co:0`, `hr:12`, an MQTT topic, or a simulator point |
+| `value` | Value written for commands without parameters (`true`, `1`, `"running"`) |
+| `param` + `scale` | Setpoints: the parameter's value × scale is written (e.g. m/s × 100 → cm/s register) |
+
+Only `co:` and `hr:` points can be written; input tables are rejected when you save.
+A device acknowledgement is **not** treated as success: the control engine waits for
+the control's `feedback_measurement` to reach the expected value (`feedback_value`, or
+the setpoint ± `feedback_tolerance`) within `timeout_s`.
+
+## Device templates
+
+`GET/POST /api/device-templates` store reusable protocol settings, point maps and command
+maps. Built-in templates: line-PLC conveyor and pump (Modbus TCP), float32 energy meter
+(Modbus TCP), MQTT JSON temperature transmitter and energy meter, simulated conveyor.
+Choose one in step 1 of the onboarding wizard and adjust addresses/topics for the real device.
+
+## Connecting the customer's machinery (checklist)
+
+1. Get the register map (Modbus) or topic/payload description (MQTT) for each machine.
+2. Create or reuse an **asset type** with the measurements and controls you need (Asset types page).
+3. **Connect device**: pick the asset, start from a template, enter the IP/port/unit or broker, **Test**, **Discover**, map points and (optionally) commands, then activate.
+4. Add **interlocks** on the asset's Control tab for anything that must be true before starting (E-stop healthy, guards closed, downstream running, levels OK).
+5. Test every command on site with the machine in a safe state, with local supervision.

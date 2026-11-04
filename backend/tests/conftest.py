@@ -6,6 +6,9 @@ _tmp = tempfile.mkdtemp(prefix="twin-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ["SEED_DEMO"] = "true"
 os.environ["TWIN_ENV"] = "development"
+os.environ["TELEMETRY_ENABLED"] = "false"
+os.environ["DEMO_FIELD_DEVICES"] = "false"  # field devices are covered by adapter tests  # tests drive the runtime explicitly
+os.environ["MODEL_STORAGE_DIR"] = f"{_tmp}/models"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

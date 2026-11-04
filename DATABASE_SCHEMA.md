@@ -73,12 +73,59 @@ concurrency (`PATCH` with a stale `version` returns 409).
 ### audit_logs
 `id, org_id, at, user_id?, user_email, action (e.g. asset.update), entity_type, entity_id, summary, details JSON (field diffs; never secrets)`
 
+### scenes (Phase 2)
+`id, org_id, factory_id (unique), name, version, updated_by`
+
+### scene_objects (Phase 2)
+`id (client UUID), org_id, scene_id, asset_id? (FK assets, CASCADE), kind, name, shape, position/rotation/scale/size JSON[3], color, opacity, model_id?, floor_id?, group_id?, locked, hidden, sort, props JSON`. Saving replaces the scene's objects atomically.
+
+### scene_versions (Phase 2)
+`id, org_id, scene_id, version, message, created_by, created_at, object_count, snapshot JSON` (immutable full copy of the objects).
+
+### model_files (Phase 2)
+`id, org_id, filename, format (glb|obj|stl), size_bytes, storage_path, uploaded_by`. File bytes are stored under `MODEL_STORAGE_DIR/<org_id>/`.
+
+### telemetry_records (Phase 4)
+`id, org_id, asset_id, measurement, ts, value_num?, value_text?, quality, source (live|simulated), device_id`. Index `(asset_id, measurement, ts)`. Pruned after `TELEMETRY_RETENTION_HOURS`. On PostgreSQL convert to a Timescale hypertable.
+
+### dashboards (Phase 6 part)
+`id, org_id, factory_id, name, widgets JSON, created_by`.
+
+### device_templates (Phase 3)
+`id, org_id, key, name, protocol, description, asset_type_key, connection_config JSON, point_mappings JSON, control_mappings JSON, builtin`
+
+### devices: added columns (Phase 3/5)
+`control_mappings JSON [{control, point, value, param, scale}]`, `template_id`
+
+### interlocks (Phase 5)
+`id, org_id, asset_id, control_key ('*' = all), source_asset_id, measurement, operator, value, message, enabled`
+
+### control_commands (Phase 5)
+`id, org_id, factory_id, asset_id, device_id, control_key, control_label, params JSON, status, simulated, verified, reason, requested_by, requested_at, approved_by, approved_at, sent_at, acked_at, finished_at, result_message, checks JSON, events JSON`
+
+### alerts (Phase 6 part)
+`id, org_id, factory_id, asset_id, device_id, kind (limit|state|comm|command), measurement, severity (warning|alarm), active, message, value_num, value_text, threshold, source, raised_at, updated_at, cleared_at, acked, acked_by, acked_at`
+
+### users: added columns
+`must_change_password`, `last_login_at`
+
+New columns are added to existing databases automatically at start-up (`app/core/schema_sync.py`).
+
+### telemetry_hourly (Phase 6)
+`org_id, asset_id, measurement, hour, count, avg, min, max, first_num, last_num, last_text, states JSON {state: seconds, _starts}, source`. Unique `(asset_id, measurement, hour)`, kept 400 days.
+
+### notification_channels / notification_deliveries (Phase 6)
+Channels: `name, type (webhook|email), config JSON, secrets_encrypted, enabled, alerts, min_severity, notify_clear`. Deliveries: `channel_id, at, event, subject, status, attempts, detail`.
+
+### automation_rules / automation_executions (Phase 6)
+Rules: `factory_id, name, description, enabled, trigger JSON, conditions JSON, actions JSON, cooldown_s, run_as_user_id, created_by, version, last_fired_at`. Executions: `rule_id, started_at, finished_at, status (succeeded|partial|failed|skipped|dry_run), dry_run, trigger_detail, steps JSON`.
+
+### simulation_scenarios (Phase 6)
+`factory_id, name, description, steps JSON, created_by`.
+
 ## Planned tables (later phases)
 
 | Phase | Tables |
 |---|---|
-| 2 | `scenes`, `scene_objects` (asset_id?, transform, model ref, layer, locked, hidden), `scene_versions` (immutable snapshots), `model_files` |
-| 4 | `telemetry_records` (hypertable on PostgreSQL+Timescale: ts, org_id, asset_id, measurement, value_num, value_text, quality, source, device_id, seq; PK (asset_id, measurement, ts)), `latest_values` (in Redis or memory) |
-| 5 | `control_commands`, `command_executions` (state machine + timestamps per transition), `interlocks` |
-| 6 | `alerts`, `alert_rules`, `automation_rules`, `automation_executions`, `dashboards`, `dashboard_widgets`, `simulation_sessions` |
+| 4 | `latest_values` persisted (Redis or a table) for restart continuity |
 | 7 | `roles`, `permissions`, `asset_grants`, `gateways`, `gateway_sync_state`, `api_keys` |

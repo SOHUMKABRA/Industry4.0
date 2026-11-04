@@ -8,3 +8,6 @@ bcrypt==5.0.0
 cryptography==50.0.2
 psycopg[binary]==3.3.6
 email-validator==2.3.0
+python-multipart==0.0.20
+aiomqtt==2.5.1
+pymodbus==3.16.1

@@ -2,7 +2,7 @@ import asyncio
 import time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 
 from app.adapters.base import AdapterError, DeviceAdapter
@@ -10,9 +10,20 @@ from app.adapters.registry import get_adapter_class, list_protocols
 from app.core.crypto import decrypt_json, encrypt_json
 from app.core.deps import DB, CurrentUser, get_owned, require
 from app.core.permissions import Perm
-from app.models import Asset, Device, Factory, User
+from app.models import Asset, Device, DeviceTemplate, Factory, User
 from app.models.base import utcnow
-from app.schemas.devices import DeviceIn, DeviceOut, DevicePatch, DiscoveredPoint, PointMapping, ProtocolOut, TestResult
+from app.schemas.devices import (
+    ControlMapping,
+    DeviceIn,
+    DeviceOut,
+    DevicePatch,
+    DiscoveredPoint,
+    PointMapping,
+    ProtocolOut,
+    TemplateIn,
+    TemplateOut,
+    TestResult,
+)
 from app.services import audit
 
 router = APIRouter(tags=["devices"])
@@ -64,6 +75,41 @@ def _check_mappings(asset: Asset | None, mappings: list[PointMapping]) -> None:
         )
 
 
+def _check_controls(asset: Asset | None, mappings: list[ControlMapping], cls: type[DeviceAdapter]) -> None:
+    if not mappings:
+        return
+    if asset is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Control mappings need the device to be bound to an asset")
+    if not cls.supports_write:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{cls.name} devices can't execute commands")
+    known = {c["key"] for c in asset.asset_type.controls}
+    bad = [m.control for m in mappings if m.control not in known]
+    if bad:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            f"Asset type '{asset.asset_type.name}' has no control(s): {', '.join(bad)}")
+    if cls.key == "modbus_tcp":
+        from app.adapters.modbus_tcp import parse_point
+
+        for m in mappings:
+            try:
+                p = parse_point(m.point)
+            except AdapterError as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
+            if p.table in ("ir", "di"):
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"{m.point} is read-only; commands need co: or hr:")
+
+
+def _check_points(cls: type[DeviceAdapter], mappings: list[PointMapping]) -> None:
+    if cls.key == "modbus_tcp":
+        from app.adapters.modbus_tcp import parse_point
+
+        for m in mappings:
+            try:
+                parse_point(m.point)
+            except AdapterError as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from None
+
+
 def _asset_in_factory(db, user: User, asset_id: str | None, factory_id: str) -> Asset | None:
     if asset_id is None:
         return None
@@ -99,6 +145,8 @@ def create_device(body: DeviceIn, user: Writer, db: DB):
     cls = _adapter_cls(body.protocol)
     asset = _asset_in_factory(db, user, body.asset_id, factory.id)
     _check_mappings(asset, body.point_mappings)
+    _check_points(cls, body.point_mappings)
+    _check_controls(asset, body.control_mappings, cls)
     creds = _clean_credentials(cls, body.credentials or {})
     d = Device(
         org_id=user.org_id,
@@ -109,6 +157,8 @@ def create_device(body: DeviceIn, user: Writer, db: DB):
         connection_config=_clean_config(cls, body.connection_config),
         credentials_encrypted=encrypt_json(creds) if creds else None,
         point_mappings=[m.model_dump() for m in body.point_mappings],
+        control_mappings=[m.model_dump() for m in body.control_mappings],
+        template_id=body.template_id,
         enabled=body.enabled,
     )
     db.add(d)
@@ -129,6 +179,10 @@ def update_device(device_id: str, body: DevicePatch, user: Writer, db: DB):
     mappings = body.point_mappings if body.point_mappings is not None else [PointMapping(**m) for m in d.point_mappings]
     if "asset_id" in changes or "point_mappings" in changes:
         _check_mappings(asset or None, mappings)
+        _check_points(cls, mappings)
+    controls = body.control_mappings if body.control_mappings is not None else [ControlMapping(**m) for m in (d.control_mappings or [])]
+    if "asset_id" in changes or "control_mappings" in changes:
+        _check_controls(asset or None, controls, cls)
     summary_fields = sorted(changes)
     if "connection_config" in changes:
         changes["connection_config"] = _clean_config(cls, changes["connection_config"])
@@ -137,6 +191,8 @@ def update_device(device_id: str, body: DevicePatch, user: Writer, db: DB):
         d.credentials_encrypted = encrypt_json(creds) if creds else None
     if "point_mappings" in changes:
         changes["point_mappings"] = [m.model_dump() for m in body.point_mappings]
+    if "control_mappings" in changes:
+        changes["control_mappings"] = [m.model_dump() for m in body.control_mappings]
     if {"connection_config", "credentials"} & set(summary_fields):
         d.last_test_status, d.last_test_message, d.last_test_at = "unknown", "Settings changed since last test", None
     for k, v in changes.items():
@@ -159,6 +215,53 @@ def delete_device(device_id: str, user: Writer, db: DB):
 def _instance(d: Device) -> DeviceAdapter:
     cls = _adapter_cls(d.protocol)
     return cls(d.connection_config, decrypt_json(d.credentials_encrypted))
+
+
+@router.get("/devices/{device_id}/diagnostics")
+async def device_diagnostics(device_id: str, request: Request, user: CurrentUser, db: DB):
+    d = get_owned(db, Device, device_id, user, "Device")
+    rt = getattr(request.app.state, "telemetry", None)
+    ctx = rt.devices.get(d.id) if rt else None
+    if ctx is None:
+        return {"active": False, "reason": "disabled" if not d.enabled else "not bound to an asset or not loaded yet"}
+    st = await ctx.adapter.get_device_status()
+    return {
+        "active": True, "online": rt.device_online(ctx), "connected": st.connected, "protocol": ctx.protocol,
+        "samples": ctx.samples, "errors": ctx.errors, "last_error": ctx.last_error or st.detail, "poll_ms": ctx.last_poll_ms,
+        "last_seen": int(ctx.last_seen * 1000) if ctx.last_seen else None, "adapter": st.diagnostics,
+    }
+
+
+# ---------- device templates ----------
+@router.get("/device-templates", response_model=list[TemplateOut])
+def list_templates(user: CurrentUser, db: DB):
+    return db.scalars(select(DeviceTemplate).where(DeviceTemplate.org_id == user.org_id).order_by(DeviceTemplate.protocol, DeviceTemplate.name)).all()
+
+
+@router.post("/device-templates", response_model=TemplateOut, status_code=201)
+def create_template(body: TemplateIn, user: Writer, db: DB):
+    cls = _adapter_cls(body.protocol)
+    if db.scalar(select(DeviceTemplate).where(DeviceTemplate.org_id == user.org_id, DeviceTemplate.key == body.key)):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Template key '{body.key}' already exists")
+    cfg = _clean_config(cls, body.connection_config)
+    _check_points(cls, body.point_mappings)
+    t = DeviceTemplate(org_id=user.org_id, **body.model_dump(mode="json", exclude={"connection_config"}), connection_config=cfg)
+    db.add(t)
+    db.flush()
+    audit.record(db, user, "template.create", "device_template", t.id, f"Created device template {t.name}")
+    db.commit()
+    return t
+
+
+@router.delete("/device-templates/{template_id}", status_code=204)
+def delete_template(template_id: str, user: Writer, db: DB):
+    t = get_owned(db, DeviceTemplate, template_id, user, "Template")
+    if t.builtin:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Built-in templates can't be deleted")
+    audit.record(db, user, "template.delete", "device_template", t.id, f"Deleted device template {t.name}")
+    db.delete(t)
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/devices/{device_id}/test", response_model=TestResult)

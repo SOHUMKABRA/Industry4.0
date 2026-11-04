@@ -14,6 +14,14 @@ class PointMapping(BaseModel):
     offset: float = 0.0
 
 
+class ControlMapping(BaseModel):
+    control: str = Field(pattern=KEY_PATTERN)  # control key on the asset type
+    point: str = Field(min_length=1, max_length=200)
+    value: Any = None  # value written for commands (e.g. true, "running")
+    param: str | None = None  # setpoints: which parameter supplies the value
+    scale: float = 1.0  # raw = parameter × scale
+
+
 class DeviceIn(BaseModel):
     factory_id: str
     name: str = Field(min_length=1, max_length=200)
@@ -23,6 +31,8 @@ class DeviceIn(BaseModel):
     # Write-only. Stored encrypted; never returned.
     credentials: dict[str, str] | None = None
     point_mappings: list[PointMapping] = Field(default_factory=list)
+    control_mappings: list[ControlMapping] = Field(default_factory=list)
+    template_id: str | None = None
     enabled: bool = False
 
 
@@ -32,6 +42,7 @@ class DevicePatch(BaseModel):
     connection_config: dict[str, Any] | None = None
     credentials: dict[str, str] | None = None
     point_mappings: list[PointMapping] | None = None
+    control_mappings: list[ControlMapping] | None = None
     enabled: bool | None = None
 
 
@@ -44,6 +55,8 @@ class DeviceOut(Timestamps):
     connection_config: dict[str, Any]
     has_credentials: bool
     point_mappings: list[PointMapping]
+    control_mappings: list[ControlMapping] = []
+    template_id: str | None = None
     enabled: bool
     last_test_status: str
     last_test_message: str
@@ -94,3 +107,27 @@ class AuditOut(ORMModel):
     entity_id: str | None
     summary: str
     details: dict
+
+
+class TemplateIn(BaseModel):
+    key: str = Field(pattern=KEY_PATTERN)
+    name: str = Field(min_length=1, max_length=200)
+    protocol: str
+    description: str = Field(default="", max_length=2000)
+    asset_type_key: str | None = None
+    connection_config: dict[str, Any] = Field(default_factory=dict)
+    point_mappings: list[PointMapping] = Field(default_factory=list)
+    control_mappings: list[ControlMapping] = Field(default_factory=list)
+
+
+class TemplateOut(ORMModel):
+    id: str
+    key: str
+    name: str
+    protocol: str
+    description: str
+    asset_type_key: str | None
+    connection_config: dict[str, Any]
+    point_mappings: list[PointMapping]
+    control_mappings: list[ControlMapping]
+    builtin: bool

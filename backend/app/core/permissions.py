@@ -23,11 +23,14 @@ class Perm(StrEnum):
     DEVICE_TEST = "device.test"
     AUDIT_READ = "audit.read"
     USER_MANAGE = "user.manage"
+    CONTROL_EXECUTE = "control.execute"
+    CONTROL_APPROVE = "control.approve"
+    ALERT_ACK = "alert.ack"
 
 
 ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
     Role.VIEWER: frozenset({Perm.READ}),
-    Role.OPERATOR: frozenset({Perm.READ, Perm.DEVICE_TEST}),
+    Role.OPERATOR: frozenset({Perm.READ, Perm.DEVICE_TEST, Perm.CONTROL_EXECUTE, Perm.ALERT_ACK}),
     Role.ENGINEER: frozenset(
         {
             Perm.READ,
@@ -37,6 +40,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
             Perm.DEVICE_WRITE,
             Perm.DEVICE_TEST,
             Perm.AUDIT_READ,
+            Perm.CONTROL_EXECUTE,
+            Perm.CONTROL_APPROVE,
+            Perm.ALERT_ACK,
         }
     ),
     Role.ADMIN: frozenset(Perm),
@@ -46,5 +52,15 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Perm]] = {
 def has_perm(role: str, perm: Perm) -> bool:
     try:
         return perm in ROLE_PERMISSIONS[Role(role)]
+    except ValueError:
+        return False
+
+
+ROLE_RANK = {Role.VIEWER: 0, Role.OPERATOR: 1, Role.ENGINEER: 2, Role.ADMIN: 3}
+
+
+def role_at_least(role: str, minimum: str) -> bool:
+    try:
+        return ROLE_RANK[Role(role)] >= ROLE_RANK[Role(minimum)]
     except ValueError:
         return False

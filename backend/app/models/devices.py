@@ -26,6 +26,9 @@ class Device(IdMixin, TimestampMixin, OrgMixin, Base):
     credentials_encrypted: Mapped[str | None] = mapped_column(Text, default=None)
     # Data-point → asset measurement mappings: [{point, measurement, scale, offset}]
     point_mappings: Mapped[list] = mapped_column(JSON, default=list)
+    # Control capability → protocol point: [{control, point, value?, param?, scale?}]
+    control_mappings: Mapped[list] = mapped_column(JSON, default=list)
+    template_id: Mapped[str | None] = mapped_column(String(36), default=None)
     gateway_id: Mapped[str | None] = mapped_column(String(36), default=None)
     enabled: Mapped[bool] = mapped_column(default=False)
     # unknown | ok | error  (result of the last connection test, not live status)

@@ -22,6 +22,7 @@ class UserOut(ORMModel):
     email: str
     name: str
     role: str
+    must_change_password: bool = False
 
 
 class OrgOut(ORMModel):

@@ -1,7 +1,8 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, qs } from "../api/client";
-import { Asset, AssetType, ConfigField, Device, DiscoveredPoint, PointMapping, Protocol, TestResult } from "../api/types";
+import { Asset, AssetType, ConfigField, ControlMapping, Device, DeviceDiagnostics, DeviceTemplate, DiscoveredPoint, PointMapping, Protocol, TestResult } from "../api/types";
+import { useLiveMeta } from "../live/liveMeta";
 import { useAuth } from "../auth/AuthContext";
 import { Icon } from "../components/Icon";
 import { useToast } from "../components/Toast";
@@ -18,7 +19,7 @@ function ConfigForm({ schema, values, onChange, secrets, onSecrets, hasStoredSec
 }) {
   const input = (f: ConfigField) => {
     if (f.secret) {
-      return <input className="input" type="password" autoComplete="new-password" value={secrets[f.key] ?? ""}
+      return <input className="input" type={f.key === "username" ? "text" : "password"} autoComplete="new-password" value={secrets[f.key] ?? ""}
         placeholder={hasStoredSecrets ? "•••••• stored (leave blank to keep)" : ""} onChange={(e) => onSecrets({ ...secrets, [f.key]: e.target.value })} />;
     }
     const v = values[f.key] ?? f.default;
@@ -99,11 +100,81 @@ function TestBox({ result }: { result: TestResult | null }) {
   );
 }
 
+function ControlMappingEditor({ mappings, onChange, type, protocol }: {
+  mappings: ControlMapping[]; onChange: (m: ControlMapping[]) => void; type?: AssetType; protocol?: string;
+}) {
+  const controls = type?.controls ?? [];
+  if (!type) return null;
+  if (!controls.length) return <p className="faint small" style={{ margin: 0 }}>{type.name} defines no controls.</p>;
+  const hint = protocol === "modbus_tcp" ? "co:0 (coil) or hr:12 (holding register)" : protocol === "mqtt" ? "command topic, e.g. site/line/cmd" : "simulator point, e.g. state";
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <table className="table def-table">
+        <thead><tr><th>Command</th><th>Device point</th><th>Value written</th><th style={{ width: 90 }} title="raw = parameter × scale">Scale</th><th style={{ width: 40 }} /></tr></thead>
+        <tbody>
+          {mappings.map((m, i) => {
+            const def = controls.find((c) => c.key === m.control);
+            const upd = (p: Partial<ControlMapping>) => onChange(mappings.map((x, j) => (j === i ? { ...x, ...p } : x)));
+            return (
+              <tr key={i}>
+                <td>
+                  <select className="select" value={m.control} onChange={(e) => upd({ control: e.target.value })} aria-label="Command">
+                    {controls.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                  </select>
+                </td>
+                <td><input className="input mono" value={m.point} placeholder={hint} onChange={(e) => upd({ point: e.target.value })} aria-label="Point" /></td>
+                <td>
+                  {def?.params.length ? <span className="faint small">parameter “{def.params[0].label}”</span> : (
+                    <input className="input mono" value={m.value === null || m.value === undefined ? "" : String(m.value)} placeholder="true / 1 / running" aria-label="Value"
+                      onChange={(e) => { const v = e.target.value; upd({ value: v === "true" ? true : v === "false" ? false : v !== "" && !isNaN(Number(v)) ? Number(v) : v }); }} />
+                  )}
+                </td>
+                <td>{def?.params.length ? <input className="input" type="number" step="any" value={m.scale} onChange={(e) => upd({ scale: Number(e.target.value), param: def.params[0].key })} aria-label="Scale" /> : <span className="faint">—</span>}</td>
+                <td><button className="btn sm ghost danger" onClick={() => onChange(mappings.filter((_, j) => j !== i))} aria-label="Remove"><Icon name="x" size={13} /></button></td>
+              </tr>
+            );
+          })}
+          {!mappings.length && <tr><td colSpan={5} className="faint">No commands mapped: this device is monitor-only.</td></tr>}
+        </tbody>
+      </table>
+      <div>
+        <button className="btn sm" onClick={() => {
+          const next = controls.find((c) => !mappings.some((m) => m.control === c.key)) ?? controls[0];
+          onChange([...mappings, { control: next.key, point: "", value: next.params.length ? null : true, param: next.params[0]?.key ?? null, scale: 1 }]);
+        }}><Icon name="plus" size={13} />Map a command</button>
+      </div>
+    </div>
+  );
+}
+
+function Diagnostics({ deviceId }: { deviceId: string }) {
+  const [d, setD] = useState<DeviceDiagnostics | null>(null);
+  useEffect(() => {
+    let stop = false;
+    const load = () => api.get<DeviceDiagnostics>(`/devices/${deviceId}/diagnostics`).then((x) => !stop && setD(x)).catch(() => {});
+    void load();
+    const t = setInterval(load, 2000);
+    return () => { stop = true; clearInterval(t); };
+  }, [deviceId]);
+  if (!d) return null;
+  if (!d.active) return <p className="faint small" style={{ margin: 0 }}>Not collecting data ({d.reason}).</p>;
+  return (
+    <dl className="kv small">
+      <dt>Status</dt><dd>{d.online ? <Pill tone="ok">Online</Pill> : <Pill tone="bad">Offline</Pill>}</dd>
+      <dt>Last data</dt><dd>{d.last_seen ? new Date(d.last_seen).toLocaleTimeString() : "never"}</dd>
+      <dt>Samples / errors</dt><dd>{d.samples?.toLocaleString()} / {d.errors}</dd>
+      {d.poll_ms != null && <><dt>Poll round-trip</dt><dd>{d.poll_ms} ms</dd></>}
+      {d.last_error && <><dt>Last error</dt><dd className="sev-alarm">{d.last_error}</dd></>}
+      {d.adapter && Object.keys(d.adapter).length > 0 && <><dt>Adapter</dt><dd className="mono">{JSON.stringify(d.adapter)}</dd></>}
+    </dl>
+  );
+}
+
 // ---------- Onboarding wizard ----------
 const STEPS = ["Basics", "Protocol", "Connection", "Test", "Map points", "Activate"];
 
-function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, onClose, onDone }: {
-  factoryId: string; assets: Asset[]; types: AssetType[]; protocols: Protocol[]; presetAsset?: string;
+function OnboardingWizard({ factoryId, assets, types, protocols, templates, presetAsset, onClose, onDone }: {
+  factoryId: string; assets: Asset[]; types: AssetType[]; protocols: Protocol[]; templates: DeviceTemplate[]; presetAsset?: string;
   onClose: () => void; onDone: () => void;
 }) {
   const toast = useToast();
@@ -117,6 +188,8 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
   const [test, setTest] = useState<TestResult | null>(null);
   const [discovered, setDiscovered] = useState<DiscoveredPoint[]>([]);
   const [mappings, setMappings] = useState<PointMapping[]>([]);
+  const [controlMaps, setControlMaps] = useState<ControlMapping[]>([]);
+  const [templateId, setTemplateId] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const asset = assets.find((a) => a.id === assetId);
@@ -125,6 +198,18 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setErr(null);
     try { await fn(); } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const fitting = templates.filter((t) => !type || !t.asset_type_key || t.asset_type_key === type.key);
+  const applyTemplate = (id: string) => {
+    setTemplateId(id);
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    const p = protocols.find((x) => x.key === t.protocol);
+    if (p) setProtocol(p);
+    setConfig({ ...t.connection_config });
+    setMappings(t.point_mappings.map((m) => ({ ...m })));
+    setControlMaps(t.control_mappings.map((m) => ({ ...m })));
   };
 
   const pickProtocol = (p: Protocol) => {
@@ -138,7 +223,7 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
     const body = { name, asset_id: assetId || null, connection_config: config, ...(Object.keys(creds).length ? { credentials: creds } : {}) };
     const d = device
       ? await api.patch<Device>(`/devices/${device.id}`, body)
-      : await api.post<Device>("/devices", { ...body, factory_id: factoryId, protocol: protocol!.key, enabled: false });
+      : await api.post<Device>("/devices", { ...body, factory_id: factoryId, protocol: protocol!.key, enabled: false, template_id: templateId || null });
     setDevice(d);
     setStep(3);
     const r = await api.post<TestResult>(`/devices/${d.id}/test`);
@@ -152,7 +237,7 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
   const retest = () => run(async () => { setTest(await api.post<TestResult>(`/devices/${device!.id}/test`)); });
 
   const saveMappings = () => run(async () => {
-    setDevice(await api.patch<Device>(`/devices/${device!.id}`, { point_mappings: mappings }));
+    setDevice(await api.patch<Device>(`/devices/${device!.id}`, { point_mappings: mappings, control_mappings: controlMaps.filter((m) => m.point) }));
     setStep(5);
   });
 
@@ -205,6 +290,13 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
             </select>
           </Field>
           {type && <p className="faint small" style={{ margin: 0 }}>{type.name} measurements: {type.telemetry.map((t) => t.label).join(", ") || "none"}</p>}
+          <Field label="Start from a template (optional)" help="Prefills protocol settings, point map and command map. You can change everything afterwards.">
+            <select className="select" value={templateId} onChange={(e) => applyTemplate(e.target.value)}>
+              <option value="">No template</option>
+              {fitting.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </Field>
+          {templateId && <p className="faint small" style={{ margin: 0 }}>{templates.find((t) => t.id === templateId)?.description}</p>}
         </div>
       )}
 
@@ -237,7 +329,18 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
         </div>
       )}
 
-      {step === 4 && <MappingEditor mappings={mappings} onChange={setMappings} type={type} discovered={discovered} />}
+      {step === 4 && (
+        <div className="stack">
+          <div className="section-title" style={{ marginTop: 0 }}>Telemetry: device points → measurements</div>
+          <MappingEditor mappings={mappings} onChange={setMappings} type={type} discovered={discovered} />
+          {protocol?.supports_write && type && type.controls.length > 0 && (
+            <>
+              <div className="section-title">Commands: controls → device points (optional)</div>
+              <ControlMappingEditor mappings={controlMaps} onChange={setControlMaps} type={type} protocol={protocol.key} />
+            </>
+          )}
+        </div>
+      )}
 
       {step === 5 && device && (
         <div className="stack">
@@ -247,8 +350,9 @@ function OnboardingWizard({ factoryId, assets, types, protocols, presetAsset, on
             <dt>Protocol</dt><dd>{protocol?.name}</dd>
             <dt>Connection test</dt><dd><TestPill status={device.last_test_status} /></dd>
             <dt>Mapped points</dt><dd>{device.point_mappings.length}</dd>
+            <dt>Mapped commands</dt><dd>{device.control_mappings.length}</dd>
           </dl>
-          <div className="notice"><span>Activating marks the device for data collection. Ingestion and live values arrive in Phase 4. Until then the device is configured and tested, but no telemetry is collected.</span></div>
+          <div className="notice"><span>Activating starts data collection within a few seconds. Live values appear on the asset, the twin and dashboards. Mapped commands become available on the asset's Control tab.</span></div>
         </div>
       )}
       {err && <div className="notice bad" style={{ marginTop: 12 }}>{err}</div>}
@@ -277,7 +381,8 @@ function DeviceDetail({ device, assets, types, protocols, onClose, onChanged }: 
     setBusy(true);
     try {
       const creds = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v));
-      const body = { name: d.name, asset_id: d.asset_id, connection_config: d.connection_config, point_mappings: d.point_mappings, enabled: d.enabled,
+      const body = { name: d.name, asset_id: d.asset_id, connection_config: d.connection_config, point_mappings: d.point_mappings,
+        control_mappings: d.control_mappings.filter((m) => m.point), enabled: d.enabled,
         ...(Object.keys(creds).length ? { credentials: creds } : {}) };
       setD(await api.patch<Device>(`/devices/${d.id}`, body));
       setSecrets({});
@@ -324,6 +429,14 @@ function DeviceDetail({ device, assets, types, protocols, onClose, onChanged }: 
         <div className="faint small">Last test: <TestPill status={device.last_test_status} /> {device.last_test_message && `· ${device.last_test_message}`} · {timeAgo(device.last_test_at)}</div>
         <div className="section-title">Point mappings</div>
         <MappingEditor mappings={d.point_mappings} onChange={(m) => setD({ ...d, point_mappings: m })} type={type} discovered={discovered} />
+        {proto?.supports_write && type && type.controls.length > 0 && (
+          <>
+            <div className="section-title">Command mappings</div>
+            <ControlMappingEditor mappings={d.control_mappings} onChange={(m) => setD({ ...d, control_mappings: m })} type={type} protocol={d.protocol} />
+          </>
+        )}
+        <div className="section-title">Live diagnostics</div>
+        <Diagnostics deviceId={device.id} />
       </div>
       {confirmDel && (
         <Confirm title={`Delete ${device.name}?`} message="The device configuration and stored credentials will be removed." onClose={() => setConfirmDel(false)}
@@ -331,6 +444,15 @@ function DeviceDetail({ device, assets, types, protocols, onClose, onChanged }: 
       )}
     </Modal>
   );
+}
+
+function LiveState({ device }: { device: Device }) {
+  const st = useLiveMeta((s) => s.devices.find((x) => x.device_id === device.id));
+  if (!device.enabled) return <span className="faint small">—</span>;
+  if (!st) return <span className="faint small">starting…</span>;
+  return st.online
+    ? <span title={`${st.samples ?? 0} samples${st.poll_ms != null ? ` · ${st.poll_ms} ms` : ""}`}><Pill tone="ok">Online</Pill></span>
+    : <span title={st.error || "no recent data"}><Pill tone="bad">Offline</Pill></span>;
 }
 
 // ---------- Page ----------
@@ -346,6 +468,7 @@ export function DevicesPage() {
   const assets = useApi(() => (fid ? api.get<Asset[]>(`/assets${qs({ factory_id: fid })}`) : Promise.resolve([])), [fid]);
   const types = useApi(() => api.get<AssetType[]>("/asset-types"), []);
   const protocols = useApi(() => api.get<Protocol[]>("/protocols"), []);
+  const templates = useApi(() => api.get<DeviceTemplate[]>("/device-templates"), []);
   const assetById = useMemo(() => Object.fromEntries((assets.data ?? []).map((a) => [a.id, a])), [assets.data]);
 
   if (!factory) return <div className="panel"><Empty title="No factory selected" /></div>;
@@ -377,7 +500,7 @@ export function DevicesPage() {
           </Empty>
         ) : (
           <table className="table">
-            <thead><tr><th>Device</th><th>Asset</th><th>Protocol</th><th className="num">Points</th><th>Status</th><th>Connection test</th><th>Tested</th></tr></thead>
+            <thead><tr><th>Device</th><th>Asset</th><th>Protocol</th><th className="num">Points</th><th className="num">Cmds</th><th>Status</th><th>Data</th><th>Connection test</th></tr></thead>
             <tbody>
               {list.map((d) => {
                 const a = d.asset_id ? assetById[d.asset_id] : undefined;
@@ -387,9 +510,10 @@ export function DevicesPage() {
                     <td>{a ? <Link to={`/assets/${a.id}`} onClick={(e) => e.stopPropagation()}><span className="code-chip">{a.code}</span></Link> : <span className="faint">—</span>}</td>
                     <td>{d.protocol === "simulated" ? <Pill tone="sim">Simulated</Pill> : d.protocol}</td>
                     <td className="num">{d.point_mappings.length}</td>
+                    <td className="num">{d.control_mappings.length || <span className="faint">—</span>}</td>
                     <td>{d.enabled ? <Pill tone="info">Active</Pill> : <Pill tone="neutral">Inactive</Pill>}</td>
-                    <td><TestPill status={d.last_test_status} /></td>
-                    <td className="faint small">{timeAgo(d.last_test_at)}</td>
+                    <td><LiveState device={d} /></td>
+                    <td><TestPill status={d.last_test_status} /> <span className="faint small">{timeAgo(d.last_test_at)}</span></td>
                   </tr>
                 );
               })}
@@ -399,7 +523,7 @@ export function DevicesPage() {
       </section>
 
       {wizard && ready && (
-        <OnboardingWizard factoryId={factory.id} assets={assets.data!} types={types.data!} protocols={protocols.data!} presetAsset={assetFilter || undefined}
+        <OnboardingWizard factoryId={factory.id} assets={assets.data!} types={types.data!} protocols={protocols.data!} templates={templates.data ?? []} presetAsset={assetFilter || undefined}
           onClose={() => { setWizard(false); void devices.reload(); }} onDone={() => { setWizard(false); void devices.reload(); }} />
       )}
       {open && ready && (

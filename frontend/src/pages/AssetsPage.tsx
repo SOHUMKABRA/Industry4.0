@@ -10,6 +10,9 @@ import { Confirm, Empty, ErrorNote, Field, Loading, Modal, Pill, Tabs } from "..
 import { useFactory } from "../layout/FactoryContext";
 import { fmtDateTime, formatValue, timeAgo, titleCase } from "../lib/format";
 import { useApi } from "../lib/useApi";
+import { LiveValue } from "../live/LiveValue";
+import { ControlPanel } from "../control/ControlPanel";
+import { InterlockEditor } from "../control/InterlockEditor";
 
 const LIFECYCLE: Lifecycle[] = ["active", "maintenance", "decommissioned"];
 const lifecycleTone = (l: string) => (l === "active" ? "ok" : l === "maintenance" ? "warn" : "neutral");
@@ -118,15 +121,15 @@ function CreateAssetModal({ factoryId, types, areas, assets, from, onClose, onCr
 }
 
 // ---------- Detail panel ----------
-function AssetDetail({ asset, type, areas, assets, onChanged, onDeleted, onDuplicate }: {
-  asset: Asset; type?: AssetType; areas: AreaOpt[]; assets: Asset[];
+function AssetDetail({ asset, type, allTypes, areas, assets, onChanged, onDeleted, onDuplicate }: {
+  asset: Asset; type?: AssetType; allTypes: Record<string, AssetType>; areas: AreaOpt[]; assets: Asset[];
   onChanged: (a: Asset) => void; onDeleted: () => void; onDuplicate: () => void;
 }) {
   const { can } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const editable = can("asset.write");
-  const [tab, setTab] = useState<"details" | "telemetry" | "devices" | "history">("details");
+  const [tab, setTab] = useState<"details" | "telemetry" | "control" | "devices" | "history">("details");
   const [draft, setDraft] = useState(asset);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmDel, setConfirmDel] = useState(false);
@@ -183,6 +186,7 @@ function AssetDetail({ asset, type, areas, assets, onChanged, onDeleted, onDupli
       <Tabs value={tab} onChange={setTab} tabs={[
         { key: "details", label: "Details" },
         { key: "telemetry", label: `Telemetry (${type?.telemetry.length ?? 0})` },
+        ...(type && type.controls.length ? [{ key: "control" as const, label: "Control" }] : []),
         { key: "devices", label: `Devices (${devices.data?.length ?? "…"})` },
         ...(can("audit.read") ? [{ key: "history" as const, label: "History" }] : []),
       ]} />
@@ -242,7 +246,7 @@ function AssetDetail({ asset, type, areas, assets, onChanged, onDeleted, onDupli
 
         {tab === "telemetry" && type && (
           <div className="stack">
-            <div className="notice"><span>Measurements defined by the <strong>{type.name}</strong> type. Values stay empty until live ingestion (Phase 4). Nothing on this tab is estimated.</span></div>
+            <div className="notice"><span>Measurements defined by the <strong>{type.name}</strong> type. Values update live; <span className="sim-tag">SIM</span> marks simulated data, and values older than 3× the expected interval are shown as stale.</span></div>
             <table className="table">
               <thead><tr><th>Measurement</th><th>Unit</th><th>Warn</th><th>Alarm</th><th>Mapped from</th><th className="num">Value</th></tr></thead>
               <tbody>
@@ -255,13 +259,21 @@ function AssetDetail({ asset, type, areas, assets, onChanged, onDeleted, onDupli
                       <td className="muted">{[m.warn_low, m.warn_high].map((v) => formatValue(v)).join(" / ")}</td>
                       <td className="muted">{[m.alarm_low, m.alarm_high].map((v) => formatValue(v)).join(" / ")}</td>
                       <td>{src.length ? src.join(", ") : <span className="faint">not mapped</span>}</td>
-                      <td className="num"><Pill tone="neutral" dot={false}>no data</Pill></td>
+                      <td className="num"><LiveValue assetId={asset.id} def={m} /></td>
                     </tr>
                   );
                 })}
                 {!type.telemetry.length && <tr><td colSpan={6} className="faint">This type defines no measurements.</td></tr>}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {tab === "control" && type && (
+          <div className="stack">
+            <ControlPanel asset={asset} type={type} />
+            <div className="section-title">Interlocks (software permissives)</div>
+            <InterlockEditor asset={asset} type={type} types={allTypes} />
           </div>
         )}
 
@@ -389,7 +401,8 @@ export function AssetsPage() {
         </section>
 
         {selected ? (
-          <AssetDetail key={selected.id} asset={selected} type={types.data?.find((t) => t.id === selected.asset_type_id)} areas={areas} assets={all}
+          <AssetDetail key={selected.id} asset={selected} type={types.data?.find((t) => t.id === selected.asset_type_id)}
+            allTypes={Object.fromEntries((types.data ?? []).map((t) => [t.id, t]))} areas={areas} assets={all}
             onChanged={(a) => assets.setData(all.map((x) => (x.id === a.id ? a : x)))}
             onDeleted={() => { navigate("/assets"); void assets.reload(); }}
             onDuplicate={() => setCreating({ from: selected })} />

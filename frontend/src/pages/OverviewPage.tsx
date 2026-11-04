@@ -7,6 +7,30 @@ import { useFactory } from "../layout/FactoryContext";
 import { timeAgo } from "../lib/format";
 import { useApi } from "../lib/useApi";
 import { CreateFactoryButton } from "./FactoryPage";
+import { Asset, AssetType } from "../api/types";
+import { qs } from "../api/client";
+import { SourceBanner, usePlantStatus } from "../live/plant";
+import { useMemo } from "react";
+
+function LiveStrip({ factoryId }: { factoryId: string }) {
+  const assets = useApi(() => api.get<Asset[]>(`/assets${qs({ factory_id: factoryId })}`), [factoryId]);
+  const types = useApi(() => api.get<AssetType[]>("/asset-types"), []);
+  const typeById = useMemo(() => Object.fromEntries((types.data ?? []).map((t) => [t.id, t])), [types.data]);
+  const p = usePlantStatus(assets.data, typeById);
+  const tiles = [
+    ["Running", p.running, "ok"], ["Stopped / idle", p.stopped, ""], ["Fault / E-stop", p.fault, p.fault ? "bad" : ""],
+    ["Alarms", p.alarm, p.alarm ? "bad" : ""], ["Warnings", p.warn, p.warn ? "warn" : ""], ["Stale / no data", p.noData, p.noData ? "warn" : ""],
+  ] as const;
+  return (
+    <section className="panel">
+      <div className="panel-head"><h2>Live status</h2><Link to="/monitor" className="right small">Open live twin</Link></div>
+      <div className="panel-body stack">
+        <SourceBanner />
+        <div className="mon-kpis">{tiles.map(([l, v, t]) => <div key={l} className={`mon-kpi ${t}`}><span>{l}</span><strong>{v}</strong></div>)}</div>
+      </div>
+    </section>
+  );
+}
 
 function Bars({ rows }: { rows: { key: string; label: string; count: number }[] }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
@@ -76,14 +100,7 @@ export function OverviewPage() {
             ))}
           </div>
 
-          {!s.live_data_available && (
-            <div className="notice info">
-              <span>
-                <strong>Operational state isn't shown yet.</strong> Running/stopped/fault counts, live values and alerts need
-                telemetry ingestion (Phase 4). This build shows configuration only and won't show estimated or made-up machine states.
-              </span>
-            </div>
-          )}
+          <LiveStrip factoryId={factory.id} />
 
           <div className="two-col">
             <section className="panel">

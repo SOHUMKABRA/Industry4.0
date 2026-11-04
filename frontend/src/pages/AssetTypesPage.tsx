@@ -41,12 +41,19 @@ const ctlCols: Col<ControlDef>[] = [
   { key: "kind", label: "Kind", kind: "select", options: ["command", "setpoint"], width: 100 },
   { key: "min_role", label: "Min role", kind: "select", options: ["operator", "engineer", "admin"], width: 100 },
   { key: "requires_confirmation", label: "Confirm", kind: "bool", width: 60 },
-  { key: "feedback_measurement", label: "Verified by measurement", kind: "text", width: 150, title: "Telemetry key that confirms the effect" },
+  { key: "requires_approval", label: "4-eyes", kind: "bool", width: 55, title: "A second person (engineer/admin) must approve" },
+  { key: "feedback_measurement", label: "Verified by", kind: "text", width: 120, title: "Telemetry key that confirms the effect" },
+  { key: "feedback_value", label: "Expected", kind: "any", width: 90, title: "Expected feedback value for commands (setpoints use the requested value)" },
+  { key: "feedback_tolerance", label: "Tol.", kind: "num", width: 60, title: "Allowed deviation for numeric feedback" },
+  { key: "timeout_s", label: "Timeout s", kind: "num", width: 70, title: "Time allowed for the feedback to confirm" },
 ];
 
 const blankProp = (): PropertyDef => ({ key: "", label: "", type: "number", unit: "", required: false, min: null, max: null, options: [], default: null, group: "General", help: "" });
 const blankTel = (): TelemetryDef => ({ key: "", label: "", data_type: "number", unit: "", min: null, max: null, warn_low: null, warn_high: null, alarm_low: null, alarm_high: null, options: [], expected_interval_s: 5 });
-const blankCtl = (): ControlDef => ({ key: "", label: "", kind: "command", params: [], requires_confirmation: true, min_role: "operator", feedback_measurement: null, description: "" });
+const blankCtl = (): ControlDef => ({
+  key: "", label: "", kind: "command", params: [], requires_confirmation: true, min_role: "operator", feedback_measurement: null,
+  feedback_value: null, feedback_tolerance: null, requires_approval: false, timeout_s: 15, description: "",
+});
 const blankType = (): AssetType => ({
   id: "", key: "", name: "", category: "", description: "", icon: "box", property_schema: [], telemetry: [], controls: [],
   visual: { shape: "box", color: "#6b7a90", model_url: null, size: [1, 1, 1] }, version: 0, asset_count: 0, created_at: "", updated_at: "",
@@ -150,7 +157,7 @@ function TypeEditor({ initial, onSaved, onDeleted, categories }: {
         {tab === "controls" && (
           <>
             <div className="notice warn" style={{ marginBottom: 10 }}>
-              <span>These only declare which commands are possible. Commands can't be executed until the Phase 5 control engine (validation, interlocks, acknowledgement) exists. Physical safety stays with PLCs and hardwired safety circuits.</span>
+              <span>Commands run through the control engine: permission, parameter limits, interlocks (fail closed), confirmation, optional second-person approval, device acknowledgement, and verification of the expected feedback in telemetry. Physical safety always stays with PLCs and hardwired safety circuits. Map each control to a device point on the Devices page. Parameters (setpoint limits) are kept as defined.</span>
             </div>
             <DefTable rows={t.controls} cols={ctlCols} blank={blankCtl} disabled={!editable} addLabel="Add control"
               onChange={(rows) => setT({ ...t, controls: rows.map((r) => ({ ...r, feedback_measurement: r.feedback_measurement || null })) })} />

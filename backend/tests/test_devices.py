@@ -18,12 +18,14 @@ def ctx(client, new_org, factory):
 def test_protocol_catalog(client, demo_admin):
     protos = {p["key"]: p for p in client.get("/api/protocols", headers=demo_admin).json()}
     assert protos["simulated"]["status"] == "available"
-    assert protos["modbus_tcp"]["status"] == "planned"
+    assert protos["modbus_tcp"]["status"] == "available"
+    assert protos["mqtt"]["status"] == "available"
+    assert protos["opcua"]["status"] == "planned"
 
 
 def test_planned_or_unknown_protocol_rejected(client, ctx):
     h, f, _ = ctx
-    for proto in ("modbus_tcp", "nonsense"):
+    for proto in ("opcua", "nonsense"):
         r = client.post("/api/devices", json={"factory_id": f["id"], "name": "d", "protocol": proto}, headers=h)
         assert r.status_code == 422
 
@@ -56,7 +58,7 @@ def test_test_connection_and_discovery(client, ctx):
     r = client.post(f"/api/devices/{d['id']}/test", headers=h).json()
     assert r["ok"] is True
     pts = client.post(f"/api/devices/{d['id']}/discover", headers=h).json()
-    assert {p["point"] for p in pts} == {"rpm", "current", "winding_temp", "vibration"}
+    assert {p["point"] for p in pts} == {"state", "rpm", "current", "winding_temp", "vibration"}
 
     client.patch(f"/api/devices/{d['id']}", json={"connection_config": {"profile": "motor", "fail_test": True}}, headers=h)
     assert client.get(f"/api/devices/{d['id']}", headers=h).json()["last_test_status"] == "unknown"

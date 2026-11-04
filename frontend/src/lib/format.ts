@@ -3,7 +3,7 @@ export const titleCase = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c
 export function formatValue(v: unknown, unit = ""): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "number") return `${Number.isInteger(v) ? v : +v.toFixed(3)}${unit ? ` ${unit}` : ""}`;
+  if (typeof v === "number") return `${formatNumber(v)}${unit ? ` ${unit}` : ""}`;
   return `${v}${unit ? ` ${unit}` : ""}`;
 }
 
@@ -22,3 +22,11 @@ export const fmtDateTime = (iso: string) => new Date(iso).toLocaleString();
 const PER_M: Record<string, number> = { mm: 1000, cm: 100, m: 1, ft: 3.28084 };
 export const fromMetres = (m: number, unit: string) => +(m * (PER_M[unit] ?? 1)).toFixed(3);
 export const toMetres = (v: number, unit: string) => v / (PER_M[unit] ?? 1);
+
+/** Readable precision: whole numbers stay whole; otherwise ~4 significant figures. */
+export function formatNumber(v: number): string {
+  if (Number.isInteger(v)) return v.toLocaleString();
+  const a = Math.abs(v);
+  const dp = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 1 : a >= 1 ? 2 : 3;
+  return v.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}

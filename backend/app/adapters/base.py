@@ -10,6 +10,7 @@ from __future__ import annotations
 import abc
 from dataclasses import dataclass, field
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any, ClassVar, Literal
 
 from app.schemas.devices import ConfigField, DiscoveredPoint
@@ -54,6 +55,8 @@ class DeviceAdapter(abc.ABC):
     config_schema: ClassVar[list[ConfigField]] = []
     supports_discovery: ClassVar[bool] = False
     supports_write: ClassVar[bool] = False
+    # Push adapters (MQTT, webhooks) deliver samples via start(); poll adapters via read_telemetry().
+    push: ClassVar[bool] = False
 
     def __init__(self, config: dict[str, Any], credentials: dict[str, Any] | None = None):
         self.config = config
@@ -128,3 +131,11 @@ class DeviceAdapter(abc.ABC):
 
     async def get_diagnostics(self) -> dict[str, Any]:
         return (await self.get_device_status()).diagnostics
+
+    # --- push adapters only ---
+    async def start(self, points: list[str], on_samples: Callable[[list[Sample]], None]) -> None:
+        """Begin delivering samples for `points` to `on_samples` until stop()."""
+        raise NotImplementedError
+
+    async def stop(self) -> None:
+        await self.disconnect()

@@ -1,8 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.models.base import IdMixin, OrgMixin, TimestampMixin
+from app.models.base import IdMixin, OrgMixin, TimestampMixin, UTCDateTime
 
 
 class Organization(IdMixin, TimestampMixin, Base):
@@ -21,3 +23,5 @@ class User(IdMixin, TimestampMixin, OrgMixin, Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     is_active: Mapped[bool] = mapped_column(default=True)
+    must_change_password: Mapped[bool] = mapped_column(default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), default=None)

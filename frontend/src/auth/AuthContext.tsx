@@ -8,6 +8,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (body: { organization_name: string; name: string; email: string; password: string }) => Promise<void>;
   logout: () => void;
+  refresh: () => Promise<void>;
   can: (perm: string) => boolean;
 }
 
@@ -29,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const accept = (t: TokenOut) => { tokenStore.set(t.access_token); setMe(t.me); };
   const value: AuthState = {
     me, ready, logout,
+    refresh: async () => setMe(await api.get<Me>("/auth/me")),
     login: async (email, password) => accept(await api.post<TokenOut>("/auth/login", { email, password })),
     register: async (body) => accept(await api.post<TokenOut>("/auth/register", body)),
     can: (perm) => !!me?.permissions.includes(perm),

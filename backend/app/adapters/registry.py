@@ -5,15 +5,18 @@ listed so the roadmap is visible, but they cannot be selected for a device until
 an adapter exists — the platform never pretends to support a protocol.
 """
 
+import logging
+from importlib.metadata import entry_points
+
 from app.adapters.base import AdapterError, DeviceAdapter
+from app.adapters.modbus_tcp import ModbusTcpAdapter
+from app.adapters.mqtt import MqttAdapter
 from app.adapters.simulated import SimulatedAdapter
 from app.schemas.devices import ProtocolOut
 
 _ADAPTERS: dict[str, type[DeviceAdapter]] = {}
 
 PLANNED: dict[str, tuple[str, str]] = {
-    "mqtt": ("MQTT", "Phase 3. Subscribe to broker topics, JSON or raw payloads."),
-    "modbus_tcp": ("Modbus TCP", "Phase 3. Poll holding/input registers and coils."),
     "opcua": ("OPC UA", "Planned. Browse nodes, subscriptions."),
     "http": ("HTTP REST (poll)", "Planned."),
     "webhook": ("Webhook (push)", "Planned."),
@@ -29,7 +32,25 @@ def register(cls: type[DeviceAdapter]) -> type[DeviceAdapter]:
     return cls
 
 
-register(SimulatedAdapter)
+log = logging.getLogger("twin.adapters")
+
+for _cls in (SimulatedAdapter, ModbusTcpAdapter, MqttAdapter):
+    register(_cls)
+
+
+def load_plugins() -> list[str]:
+    """Load third-party adapters exposed via the `twin.adapters` entry-point group."""
+    loaded = []
+    for ep in entry_points(group="twin.adapters"):
+        try:
+            cls = ep.load()
+            if not (isinstance(cls, type) and issubclass(cls, DeviceAdapter)):
+                raise TypeError("entry point is not a DeviceAdapter subclass")
+            register(cls)
+            loaded.append(cls.key)
+        except Exception:  # noqa: BLE001 - a broken plugin must not stop the platform
+            log.exception("failed to load adapter plugin %s", ep.name)
+    return loaded
 
 
 def get_adapter_class(key: str) -> type[DeviceAdapter]:

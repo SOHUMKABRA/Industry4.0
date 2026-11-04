@@ -14,3 +14,6 @@ frontend/dist/
 .idea/
 .vscode/
 .env
+
+# Backups (contain the database)
+backups/

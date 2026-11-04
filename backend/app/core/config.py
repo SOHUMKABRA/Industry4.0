@@ -15,6 +15,15 @@ class Settings(BaseSettings):
     access_token_minutes: int = 480
     cors_origins: str = "http://localhost:5173"
     seed_demo: bool = True
+    # Demo devices that talk Modbus/MQTT to the lab field simulator (tools/field_sim).
+    demo_field_devices: bool = True
+    # Telemetry runtime (polls enabled devices in-process; edge gateways later)
+    telemetry_enabled: bool = True
+    telemetry_poll_s: float = 1.0
+    telemetry_retention_hours: float = 6.0
+    # Uploaded 3D models
+    model_storage_dir: str = "./data/models"
+    max_model_mb: int = 50
 
     @property
     def is_production(self) -> bool:
